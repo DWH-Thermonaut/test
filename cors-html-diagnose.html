@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CORS & HTML Diagnose</title>
+<style>
+  :root { color-scheme: light dark; --accent:#3978d6; --border: color-mix(in srgb, CanvasText 18%, transparent); }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.5 system-ui,sans-serif; background:Canvas; color:CanvasText; }
+  main { width:min(1100px, calc(100% - 32px)); margin:32px auto 60px; }
+  h1 { margin-bottom:6px; font-size:clamp(1.6rem,4vw,2.2rem); }
+  .muted { color:GrayText; }
+  .panel { border:1px solid var(--border); border-radius:14px; padding:18px; margin:18px 0; }
+  label { display:block; font-weight:650; margin:12px 0 6px; }
+  input, select, button, textarea { font:inherit; }
+  input, select { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:9px; background:Canvas; color:CanvasText; }
+  button { border:0; border-radius:9px; padding:10px 15px; background:var(--accent); color:white; cursor:pointer; font-weight:650; }
+  button.secondary { background:transparent; color:CanvasText; border:1px solid var(--border); }
+  button:disabled { opacity:.55; cursor:wait; }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+  .stat { padding:12px; border:1px solid var(--border); border-radius:10px; overflow-wrap:anywhere; }
+  .stat b { display:block; font-size:.82rem; color:GrayText; margin-bottom:4px; }
+  pre, textarea { width:100%; white-space:pre-wrap; overflow-wrap:anywhere; background:color-mix(in srgb, CanvasText 5%, Canvas); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  pre { max-height:430px; overflow:auto; }
+  textarea { min-height:220px; resize:vertical; }
+  .status { padding:10px 12px; border-radius:9px; background:color-mix(in srgb, var(--accent) 12%, Canvas); }
+  .error { background:color-mix(in srgb, #d33 13%, Canvas); }
+  .success { background:color-mix(in srgb, #198754 13%, Canvas); }
+  .linklist { max-height:350px; overflow:auto; padding-left:22px; }
+  .linklist li { margin:7px 0; overflow-wrap:anywhere; }
+  a { color:LinkText; }
+  .small { font-size:.9rem; }
+  code { overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+<main>
+  <h1>CORS- & HTML-Diagnose</h1>
+  <p class="muted">Testet, ob diese Seite eine andere URL im Browser abrufen und deren HTML sowie Links lesen darf.</p>
+
+  <section class="panel">
+    <label for="url">Ziel-URL</label>
+    <input id="url" type="url" placeholder="https://example.com" spellcheck="false">
+    <div class="grid">
+      <div>
+        <label for="method">HTTP-Methode</label>
+        <select id="method"><option>GET</option><option>HEAD</option></select>
+      </div>
+      <div>
+        <label for="mode">Fetch-Modus</label>
+        <select id="mode">
+          <option value="cors">cors (normaler, lesbarer Abruf)</option>
+          <option value="no-cors">no-cors (zeigt nur, ob ein opaker Abruf möglich ist)</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="run">Abruf testen</button>
+      <button class="secondary" id="open" type="button">Zielseite in neuem Tab öffnen</button>
+      <button class="secondary" id="clear" type="button">Zurücksetzen</button>
+    </div>
+    <p class="muted small">Hinweis: Verwende nur öffentliche Seiten, die du abrufen darfst. Zugangsdaten, Cookies und geschützte Inhalte werden nicht automatisch übertragen.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Ergebnis</h2>
+    <div id="message" class="status" role="status">Noch kein Test ausgeführt.</div>
+    <div class="grid" style="margin-top:12px">
+      <div class="stat"><b>Status</b><span id="status">–</span></div>
+      <div class="stat"><b>Typ</b><span id="type">–</span></div>
+      <div class="stat"><b>Dauer</b><span id="duration">–</span></div>
+      <div class="stat"><b>Antwort lesbar?</b><span id="readable">–</span></div>
+    </div>
+    <h3>Response-Header (vom Browser sichtbare)</h3>
+    <pre id="headers">–</pre>
+  </section>
+
+  <section class="panel">
+    <h2>Links im HTML</h2>
+    <p id="linkCount" class="muted">Noch keine HTML-Antwort eingelesen.</p>
+    <ol id="links" class="linklist"></ol>
+  </section>
+
+  <section class="panel">
+    <h2>Seitenquelltext</h2>
+    <div class="actions">
+      <button class="secondary" id="copy" type="button">Quelltext kopieren</button>
+      <button class="secondary" id="download" type="button">HTML speichern</button>
+    </div>
+    <textarea id="source" readonly placeholder="Der empfangene HTML-Quelltext erscheint hier …"></textarea>
+  </section>
+
+  <section class="panel">
+    <h2>Was bedeutet das Ergebnis?</h2>
+    <ul>
+      <li><b>Erfolgreich / lesbar:</b> Der Server erlaubt den Cross-Origin-Zugriff und JavaScript kann den Antworttext lesen.</li>
+      <li><b>Failed to fetch / CORS-Fehler:</b> Der Browser hat den Abruf blockiert. Häufig fehlt <code>Access-Control-Allow-Origin</code>, es gibt einen TLS-/Netzwerkfehler oder eine Weiterleitung auf eine nicht erlaubte Adresse.</li>
+      <li><b>no-cors / opaque:</b> Der Request kann eventuell gesendet werden, aber JavaScript darf Status, Header und Inhalt ausdrücklich nicht lesen. Das ist kein CORS-Bypass.</li>
+      <li><b>Header:</b> JavaScript darf nur bestimmte Response-Header sehen. Nicht sichtbare Header werden hier nicht angezeigt.</li>
+    </ul>
+    <p class="muted small">Dieses Tool kann CORS nicht umgehen und kann bei einem blockierten Abruf den Quelltext nicht auslesen. Dafür wäre ein eigener Server-Proxy nötig, der die Zielseite serverseitig abruft und den Zugriff kontrolliert freigibt.</p>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let lastHtml = '';
+
+  function resetResults() {
+    lastHtml = '';
+    $('message').className = 'status';
+    $('message').textContent = 'Noch kein Test ausgeführt.';
+    ['status','type','duration','readable'].forEach(id => $(id).textContent = '–');
+    $('headers').textContent = '–';
+    $('source').value = '';
+    $('links').replaceChildren();
+    $('linkCount').textContent = 'Noch keine HTML-Antwort eingelesen.';
+  }
+
+  function normalizeUrl() {
+    let value = $('url').value.trim();
+    if (!value) throw new Error('Bitte gib eine Ziel-URL ein.');
+    if (!/^https?:\/\//i.test(value)) value = 'https://' + value;
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Nur HTTP- und HTTPS-URLs sind erlaubt.');
+    return parsed.href;
+  }
+
+  function renderLinks(html, baseUrl) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const anchors = [...doc.querySelectorAll('a[href]')];
+    const seen = new Set();
+    const found = [];
+    for (const a of anchors) {
+      try {
+        const absolute = new URL(a.getAttribute('href'), baseUrl).href;
+        if (!seen.has(absolute)) {
+          seen.add(absolute);
+          found.push({url:absolute, text:(a.textContent || '').trim().replace(/\s+/g,' ').slice(0,180)});
+        }
+      } catch (_) {}
+    }
+    $('links').replaceChildren();
+    for (const item of found) {
+      const li = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = item.url;
+      link.textContent = item.text ? `${item.text} — ${item.url}` : item.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      li.append(link);
+      $('links').append(li);
+    }
+    $('linkCount').textContent = `${found.length} eindeutige Links gefunden.`;
+  }
+
+  $('run').addEventListener('click', async () => {
+    resetResults();
+    let target;
+    try { target = normalizeUrl(); }
+    catch (e) { $('message').className = 'status error'; $('message').textContent = e.message; return; }
+
+    const button = $('run');
+    button.disabled = true;
+    button.textContent = 'Teste …';
+    const started = performance.now();
+    try {
+      const response = await fetch(target, {
+        method: $('method').value,
+        mode: $('mode').value,
+        redirect: 'follow',
+        credentials: 'omit',
+        cache: 'no-store'
+      });
+      $('duration').textContent = `${Math.round(performance.now() - started)} ms`;
+      $('status').textContent = response.type === 'opaque' ? 'nicht verfügbar (opaque)' : `${response.status} ${response.statusText}`;
+      $('type').textContent = response.type;
+      $('readable').textContent = response.type === 'opaque' ? 'Nein' : 'Ja';
+      const visibleHeaders = [];
+      response.headers.forEach((v,k) => visibleHeaders.push(`${k}: ${v}`));
+      $('headers').textContent = visibleHeaders.length ? visibleHeaders.sort().join('\n') : '(Keine für JavaScript sichtbaren Header)';
+      if (response.type === 'opaque') {
+        $('message').className = 'status error';
+        $('message').textContent = 'Opaque Response: Der Browser gibt JavaScript absichtlich keinen Zugriff auf Status, Header oder HTML.';
+        return;
+      }
+      if (!response.ok) {
+        $('message').className = 'status error';
+        $('message').textContent = `Der Server antwortete mit HTTP ${response.status}. Der Antworttext kann trotzdem verfügbar sein.`;
+      } else {
+        $('message').className = 'status success';
+        $('message').textContent = 'Abruf erfolgreich. Die Antwort ist für JavaScript lesbar.';
+      }
+      if ($('method').value === 'HEAD') {
+        $('message').textContent += ' HEAD liefert keinen Antworttext. Wähle GET, um HTML zu lesen.';
+        return;
+      }
+      lastHtml = await response.text();
+      $('source').value = lastHtml;
+      renderLinks(lastHtml, response.url || target);
+      $('message').textContent += ` ${lastHtml.length.toLocaleString('de-DE')} Zeichen empfangen.`;
+    } catch (e) {
+      $('duration').textContent = `${Math.round(performance.now() - started)} ms`;
+      $('readable').textContent = 'Nein';
+      $('message').className = 'status error';
+      $('message').textContent = 'Abruf fehlgeschlagen. Der Browser stellt den genauen Grund aus Sicherheitsgründen oft nicht bereit. Häufige Ursache: CORS-Blockade; möglich sind aber auch DNS-, TLS-, Netzwerk- oder Redirect-Fehler.';
+      $('headers').textContent = 'Nicht verfügbar – keine lesbare Response erhalten.';
+      $('status').textContent = 'Kein lesbarer Status';
+      $('type').textContent = 'Fetch-Fehler';
+      console.error('Fetch-Diagnose:', e);
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Abruf testen';
+    }
+  });
+
+  $('open').addEventListener('click', () => {
+    try { window.open(normalizeUrl(), '_blank', 'noopener,noreferrer'); }
+    catch (e) { $('message').className = 'status error'; $('message').textContent = e.message; }
+  });
+  $('clear').addEventListener('click', resetResults);
+  $('copy').addEventListener('click', async () => {
+    if (!lastHtml) { $('message').textContent = 'Noch kein Quelltext vorhanden.'; return; }
+    try { await navigator.clipboard.writeText(lastHtml); $('message').textContent = 'Quelltext in die Zwischenablage kopiert.'; }
+    catch (_) { $('message').textContent = 'Kopieren nicht möglich. Markiere den Quelltext im Feld und kopiere ihn manuell.'; }
+  });
+  $('download').addEventListener('click', () => {
+    if (!lastHtml) { $('message').textContent = 'Noch kein Quelltext vorhanden.'; return; }
+    const blob = new Blob([lastHtml], {type:'text/html;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'seitenquelltext.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+})();
+</script>
+</body>
+</html>
